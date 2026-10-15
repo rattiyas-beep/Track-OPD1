@@ -1,0 +1,711 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ระบบติดตาม — วิเคราะห์แยกตามงาน</title>
+    <!-- Firebase -->
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.min.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.min.js"></script>
+    <!-- Chart + Excel -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.8/dist/chart.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Segoe UI', Tahoma, sans-serif; }
+        :root {
+            --primary: #2563eb; --success: #16a34a; --warning: #f59e0b; --danger: #dc2626;
+            --nosubmit: #6366f1; --gray: #6b7280; --light: #f3f4f6; --white: #ffffff; --border: #e5e7eb;
+        }
+        body { background: #f8fafc; min-height: 100vh; padding: 1rem; }
+        .container { max-width: 1280px; margin: 0 auto; }
+        header {
+            background: linear-gradient(135deg, #1e40af, #3b82f6); color: white;
+            padding: 1.2rem 1.5rem; border-radius: 12px; margin-bottom: 1.2rem;
+        }
+        header h1 { font-size: 1.3rem; margin-bottom: 0.3rem; }
+        .user-bar { margin-top: 0.6rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem; }
+        .btn-sm {
+            padding: 0.5rem 0.9rem; font-size: 0.85rem; border-radius: 6px; border: none;
+            cursor: pointer; font-weight: 500;
+        }
+        .btn-logout { background: rgba(255,255,255,0.2); color: white; }
+        .btn-primary { background: var(--primary); color: white; }
+        .btn-success { background: var(--success); color: white; }
+        .btn-warning { background: #fffbeb; color: #d97706; border: 1px solid #fcd34d; }
+        .btn-danger { background: #fef2f2; color: #dc2626; border: 1px solid #fecaca; }
+        .btn-info { background: #e0e7ff; color: #4338ca; border: 1px solid #c7d2fe; }
+        .btn-outline { background: transparent; border: 1px solid var(--primary); color: var(--primary); }
+        .tabs { display: flex; gap: 0.3rem; margin-bottom: 1rem; flex-wrap: wrap; }
+        .tab-btn {
+            padding: 0.7rem 1.1rem; border: none; background: #e5e7eb; border-radius: 8px 8px 0 0;
+            cursor: pointer; font-size: 0.9rem;
+        }
+        .tab-btn.active { background: var(--white); font-weight: 500; color: var(--primary); }
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
+        .stats-grid {
+            display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+            gap: 0.8rem; margin-bottom: 1.5rem;
+        }
+        .stat-card { background: var(--white); padding: 1rem; border-radius: 10px; text-align: center; box-shadow: 0 2px 6px rgba(0,0,0,0.04); }
+        .stat-num { font-size: 1.8rem; font-weight: 700; }
+        .stat-label { font-size: 0.8rem; color: var(--gray); margin-top: 0.3rem; }
+        .stat-card.total .stat-num { color: var(--primary); }
+        .stat-card.ontime .stat-num { color: var(--success); }
+        .stat-card.late .stat-num { color: var(--danger); }
+        .stat-card.nosubmit .stat-num { color: var(--nosubmit); }
+        .stat-card.pending .stat-num { color: var(--warning); }
+        .charts-row {
+            display: grid; grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+            gap: 1.2rem; margin-bottom: 1.5rem;
+        }
+        .chart-card { background: var(--white); padding: 1.2rem; border-radius: 10px; box-shadow: 0 2px 6px rgba(0,0,0,0.04); }
+        .chart-card h3 { font-size: 0.95rem; margin-bottom: 1rem; color: #374151; }
+        .chart-container { position: relative; height: 250px; }
+        .analysis-card {
+            background: linear-gradient(135deg, #f0fdf4, #eff6ff);
+            padding: 1.2rem; border-radius: 10px; margin-bottom: 1.5rem;
+        }
+        .analysis-card h3 { font-size: 1rem; margin-bottom: 0.8rem; color: #1e293b; }
+        .analysis-item { padding: 0.5rem 0; border-bottom: 1px solid rgba(0,0,0,0.05); }
+        .analysis-item:last-child { border-bottom: none; }
+        .task-analysis-card {
+            background: var(--white); border-radius: 10px; padding: 1.2rem; margin-bottom: 1rem;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.04); border-left: 4px solid var(--primary);
+        }
+        .task-analysis-card h4 { font-size: 1rem; margin-bottom: 0.6rem; color: #1e293b; }
+        .task-meta { display: flex; gap: 1rem; flex-wrap: wrap; margin-bottom: 0.8rem; font-size: 0.85rem; color: var(--gray); }
+        .dept-status-list { margin: 0.8rem 0; padding-left: 1rem; }
+        .dept-status-item { padding: 0.4rem 0; display: flex; justify-content: space-between; border-bottom: 1px solid #f3f4f6; }
+        .highlight { font-weight: 600; color: var(--primary); }
+        .status {
+            display: inline-flex; align-items: center; gap: 0.25rem;
+            padding: 0.25rem 0.6rem; border-radius: 20px; font-size: 0.8rem;
+            font-weight: 500; white-space: nowrap;
+        }
+        .status-ontime { background: #dcfce7; color: #166534; }
+        .status-late { background: #fee2e2; color: #991b1b; }
+        .status-pending { background: #fef3c7; color: #92400e; }
+        .status-nosubmit { background: #e0e7ff; color: #4338ca; }
+        .filter-bar {
+            background: var(--white); padding: 1rem; border-radius: 10px; margin-bottom: 1.2rem;
+            display: flex; gap: 0.6rem; flex-wrap: wrap; align-items: center;
+        }
+        .filter-bar input, .filter-bar select {
+            padding: 0.6rem; border: 1px solid var(--border); border-radius: 6px; font-size: 0.88rem;
+        }
+        .task-card {
+            background: var(--white); border-radius: 12px; box-shadow: 0 2px 6px rgba(0,0,0,0.04);
+            margin-bottom: 1.2rem; overflow: hidden;
+        }
+        .task-header {
+            background: linear-gradient(to right, #f8fafc, #f1f5f9);
+            padding: 1rem 1.2rem; border-bottom: 1px solid var(--border);
+            display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem;
+        }
+        .task-title { font-size: 1rem; font-weight: 600; color: #1e293b; }
+        .task-duedate { font-size: 0.85rem; color: var(--gray); margin-top: 0.2rem; }
+        .task-actions { display: flex; gap: 0.4rem; }
+        table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
+        th, td { padding: 0.7rem 1rem; text-align: left; border-bottom: 1px solid var(--border); }
+        th { background: #fafafa; font-weight: 600; color: #475569; white-space: nowrap; }
+        tr:hover { background: #fafbfc; }
+        .small { font-size: 0.8rem; color: var(--gray); }
+        .hidden { display: none !important; }
+        .empty { text-align: center; padding: 3rem; color: var(--gray); }
+        .loading { text-align: center; padding: 2rem; color: var(--gray); }
+        .modal-overlay {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 50;
+        }
+        .modal-box {
+            background: white; padding: 1.5rem; border-radius: 12px; width: 90%;
+            max-width: 500px; max-height: 90vh; overflow-y: auto;
+        }
+        .modal-box h3 { margin-bottom: 1rem; }
+        input, select {
+            width: 100%; padding: 0.75rem; border: 1px solid var(--border);
+            border-radius: 6px; margin-bottom: 0.8rem; font-size: 0.95rem;
+        }
+        input:focus, select:focus { outline: none; border-color: var(--primary); }
+        .dept-select-container {
+            border: 1px solid var(--border); border-radius: 6px; padding: 0.8rem;
+            max-height: 180px; overflow-y: auto; background: #fafafa; margin-bottom: 1rem;
+        }
+        .dept-option { display: flex; align-items: center; gap: 0.5rem; padding: 0.35rem 0; }
+        .dept-select-all { padding-bottom: 0.5rem; border-bottom: 1px solid var(--border); margin-bottom: 0.5rem; }
+        .radio-option {
+            display: flex; align-items: center; gap: 0.5rem; padding: 0.6rem;
+            border: 1px solid var(--border); border-radius: 6px; margin-bottom: 0.5rem; cursor: pointer;
+        }
+        .radio-option.selected { border-color: var(--primary); background: #f0f4ff; }
+        .form-buttons { display: flex; gap: 0.5rem; margin-top: 0.5rem; flex-wrap: wrap; }
+        .form-buttons button { flex: 1; min-width: 100px; }
+        .login-modal {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 100;
+        }
+        .login-box { background: white; padding: 2rem; border-radius: 12px; width: 90%; max-width: 380px; }
+        .login-box h2 { text-align: center; margin-bottom: 1.5rem; }
+        .login-box input { margin-bottom: 1rem; }
+        .sync-status { display: inline-flex; align-items: center; gap: 0.3rem; font-size: 0.8rem; }
+        .sync-dot { width: 8px; height: 8px; border-radius: 50%; background: #22c55e; animation: pulse 2s infinite; }
+        @keyframes pulse { 0% {opacity:1;} 50% {opacity:0.4;} 100% {opacity:1;} }
+        .no-print { }
+        @media print {
+            .no-print { display: none !important; }
+            body { background: white; padding: 0; }
+        }
+    </style>
+</head>
+<body>
+    <div class="login-modal" id="loginModal">
+        <div class="login-box">
+            <h2>🔐 เข้าใช้งานระบบ</h2>
+            <p style="text-align:center; font-size:0.85rem; color:var(--gray); margin-bottom:1rem;">
+                Admin รหัส: <strong>admin123</strong> | ผู้ใช้ทั่วไป: กดเข้าสู่ระบบได้เลย
+            </p>
+            <input type="text" id="userName" placeholder="ชื่อผู้ใช้">
+            <input type="password" id="userPass" placeholder="รหัสผ่าน (เฉพาะ Admin)">
+            <button class="btn-primary" style="width:100%;" onclick="login()">เข้าสู่ระบบ</button>
+        </div>
+    </div>
+
+    <div class="container hidden" id="mainApp">
+        <header class="no-print">
+            <div style="display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:0.5rem;">
+                <div>
+                    <h1>📊 ระบบติดตามและวิเคราะห์การส่งงาน</h1>
+                    <p>ข้อมูลตรงกันทุกคน • วิเคราะห์แยกตามรายการงาน</p>
+                </div>
+                <div style="text-align:right;">
+                    <span class="sync-status"><span class="sync-dot"></span> ซิงค์แล้ว</span>
+                </div>
+            </div>
+            <div class="user-bar">
+                <span id="currentUser"></span>
+                <button class="btn-sm btn-logout" onclick="logout()">ออกจากระบบ</button>
+            </div>
+        </header>
+
+        <div class="tabs no-print">
+            <button class="tab-btn active" onclick="switchTab('dashboard')">📊 ภาพรวม</button>
+            <button class="tab-btn" onclick="switchTab('tasks')">📝 รายการงาน</button>
+            <button class="tab-btn" onclick="switchTab('analysis')">📈 วิเคราะห์แยกตามงาน</button>
+            <button class="tab-btn" onclick="switchTab('export')">📥 ส่งออกข้อมูล</button>
+        </div>
+
+        <!-- แท็บภาพรวม -->
+        <div class="tab-content active" id="dashboardTab">
+            <div class="stats-grid">
+                <div class="stat-card total">
+                    <div class="stat-num" id="dTask">0</div>
+                    <div class="stat-label">งานทั้งหมด</div>
+                </div>
+                <div class="stat-card ontime">
+                    <div class="stat-num" id="dOntime">0</div>
+                    <div class="stat-label">ส่งตามกำหนด</div>
+                </div>
+                <div class="stat-card late">
+                    <div class="stat-num" id="dLate">0</div>
+                    <div class="stat-label">ส่งเกินเวลา</div>
+                </div>
+                <div class="stat-card nosubmit">
+                    <div class="stat-num" id="dNosubmit">0</div>
+                    <div class="stat-label">ไม่ส่งงาน</div>
+                </div>
+                <div class="stat-card pending">
+                    <div class="stat-num" id="dPending">0</div>
+                    <div class="stat-label">ยังไม่ส่ง</div>
+                </div>
+            </div>
+
+            <div class="charts-row">
+                <div class="chart-card">
+                    <h3>📊 สัดส่วนสถานะการส่งงาน</h3>
+                    <div class="chart-container">
+                        <canvas id="pieChart"></canvas>
+                    </div>
+                </div>
+                <div class="chart-card">
+                    <h3>📈 จำนวนงานแยกตามหน่วยงาน</h3>
+                    <div class="chart-container">
+                        <canvas id="barChart"></canvas>
+                    </div>
+                </div>
+            </div>
+
+            <div class="analysis-card">
+                <h3>💡 สรุปภาพรวมทั้งหมด</h3>
+                <div id="quickSummary">กำลังโหลดข้อมูล...</div>
+            </div>
+        </div>
+
+        <!-- แท็บรายการงาน -->
+        <div class="tab-content" id="tasksTab">
+            <div class="no-print" style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
+                <h2 style="font-size:1.1rem;">📝 รายการงานทั้งหมด</h2>
+                <div style="display:flex; gap:0.5rem;">
+                    <button class="btn-primary btn-sm" id="btnAddTask" onclick="openTaskForm()">➕ เพิ่มงาน</button>
+                    <button class="btn-outline btn-sm" id="btnDept" onclick="openDeptModal()">🏢 หน่วยงาน</button>
+                </div>
+            </div>
+
+            <div class="filter-bar no-print">
+                <strong>🔍 กรอง:</strong>
+                <input type="text" id="searchText" placeholder="ค้นหาชื่องาน..." oninput="applyFilters()">
+                <select id="filterStatus" onchange="applyFilters()">
+                    <option value="">ทุกสถานะ</option>
+                    <option value="ontime">ส่งตามกำหนด</option>
+                    <option value="late">ส่งเกินเวลา</option>
+                    <option value="nosubmit">ไม่ส่งงาน</option>
+                    <option value="pending">ยังไม่ส่ง</option>
+                </select>
+                <select id="filterDept" onchange="applyFilters()">
+                    <option value="">ทุกหน่วยงาน</option>
+                </select>
+                <button class="btn-sm btn-outline" onclick="clearFilters()">ล้าง</button>
+            </div>
+
+            <div id="tasksContainer" class="loading">⏳ กำลังโหลดข้อมูลจากระบบกลาง...</div>
+        </div>
+
+        <!-- ✅ แท็บวิเคราะห์แยกตามงาน -->
+        <div class="tab-content" id="analysisTab">
+            <h2 style="font-size:1.1rem; margin-bottom:1rem;">📈 การวิเคราะห์แยกตามรายการงาน</h2>
+
+            <div class="analysis-card">
+                <h3>📊 ภาพรวมทั้งหมด</h3>
+                <div id="anOverview">กำลังวิเคราะห์...</div>
+            </div>
+
+            <h3 style="margin:1.5rem 0 0.8rem;">📋 วิเคราะห์รายงานแต่ละฉบับ</h3>
+            <div id="taskAnalysisContainer">กำลังโหลด...</div>
+        </div>
+
+        <!-- แท็บส่งออก -->
+        <div class="tab-content" id="exportTab">
+            <h2 style="font-size:1.1rem; margin-bottom:1rem;">📥 ส่งออกข้อมูล</h2>
+            <div class="chart-card" style="max-width:500px;">
+                <h3>เลือกรูปแบบที่ต้องการส่งออก</h3>
+                <div style="display:flex; flex-direction:column; gap:0.8rem; margin-top:1rem;">
+                    <button class="btn-success btn-sm" style="padding:1rem; font-size:1rem;" onclick="exportExcel()">📊 ส่งออกเป็น Excel (.xlsx)</button>
+                    <button class="btn-info btn-sm" style="padding:1rem; font-size:1rem;" onclick="exportCSV()">📄 ส่งออกเป็น CSV</button>
+                    <button class="btn-outline btn-sm" style="padding:1rem; font-size:1rem;" onclick="window.print()">🖨️ พิมพ์เป็น PDF / กระดาษ</button>
+                </div>
+                <p class="small" style="margin-top:1rem;">💡 ข้อมูลตรงกันทุกคน ทุกครั้งที่ส่งออกจะเป็นข้อมูลล่าสุด</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- กล่องบันทึกสถานะ -->
+    <div class="modal-overlay hidden" id="statusModal">
+        <div class="modal-box">
+            <h3>📅 บันทึกสถานะงาน</h3>
+            <p class="small" id="statusInfo" style="margin-bottom:1rem;"></p>
+            <div class="radio-option" id="sPending" onclick="selStatus('pending')">⏳ ยังไม่ส่งงาน</div>
+            <div class="radio-option" id="sOntime" onclick="selStatus('ontime')">✅ ส่งตามกำหนด — ระบุวันที่ส่งจริง:</div>
+            <div class="radio-option" id="sLate" onclick="selStatus('late')">❌ ส่งเกินเวลา — ระบุวันที่ส่งจริง:</div>
+            <div class="radio-option" id="sNosubmit" onclick="selStatus('nosubmit')">🚫 ไม่ส่งงาน</div>
+            <input type="datetime-local" id="statusDate" style="margin-top:0.5rem; display:none;">
+            <div class="form-buttons" style="margin-top:1.2rem;">
+                <button class="btn-primary" onclick="saveStatus()">บันทึก</button>
+                <button class="btn-outline" onclick="closeStatusModal()">ยกเลิก</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- กล่องเพิ่ม/แก้ไขงาน -->
+    <div class="modal-overlay hidden" id="taskModal">
+        <div class="modal-box">
+            <h3 id="taskModalTitle">➕ เพิ่มงานใหม่</h3>
+            <input type="text" id="tName" placeholder="ชื่องานที่ต้องส่ง">
+            <input type="datetime-local" id="tDue">
+            <div class="dept-select-container">
+                <label class="dept-select-all" style="display:flex; align-items:center; gap:0.5rem; cursor:pointer;">
+                    <input type="checkbox" id="tAll" checked onchange="tAllToggle(this.checked)"> ✅ เลือกทั้งหมด
+                </label>
+                <div id="tDeptList"></div>
+            </div>
+            <div class="form-buttons">
+                <button class="btn-primary" onclick="saveTask()">💾 บันทึก</button>
+                <button class="btn-outline" onclick="closeTaskModal()">ยกเลิก</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- กล่องจัดการหน่วยงาน -->
+    <div class="modal-overlay hidden" id="deptModal">
+        <div class="modal-box">
+            <h3>🏢 จัดการหน่วยงาน</h3>
+            <div style="display:flex; gap:0.5rem; margin-bottom:1rem;">
+                <input type="text" id="newDept" placeholder="ชื่อหน่วยงานใหม่" style="flex:1; margin:0;">
+                <button class="btn-primary" onclick="addDept()">เพิ่ม</button>
+            </div>
+            <div id="deptList" style="max-height:200px; overflow-y:auto; margin-bottom:1rem;"></div>
+            <button class="btn-outline" style="width:100%;" onclick="closeDeptModal()">ปิด</button>
+        </div>
+    </div>
+
+    <script>
+        // ==========================================
+        // 🔑 👇 วาง Firebase Config ของคุณตรงนี้ 👇
+        // ==========================================
+        const firebaseConfig = {
+            apiKey: "ใส่ apiKey ของคุณ",
+            authDomain: "ใส่ authDomain ของคุณ",
+            projectId: "ใส่ projectId ของคุณ",
+            storageBucket: "ใส่ storageBucket ของคุณ",
+            messagingSenderId: "ใส่ messagingSenderId ของคุณ",
+            appId: "ใส่ appId ของคุณ"
+        };
+        // ==========================================
+        // ✅ จบส่วนตั้งค่า — ไม่ต้องแก้โค้ดด้านล่าง
+        // ==========================================
+
+        firebase.initializeApp(firebaseConfig);
+        const db = firebase.firestore();
+
+        let currentUser = null;
+        let departments = [];
+        let tasks = [];
+        let editTaskIdx = -1;
+        let editingStatus = { taskId: null, deptIdx: -1, status: 'pending' };
+        let pieChart, barChart;
+        let unsubscribeTasks = null, unsubscribeDepts = null;
+
+        // === ช่วยจัดการข้อความ ===
+        function escapeHtml(text) {
+            if (!text) return '';
+            return text.toString().replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;");
+        }
+        function formatDateTime(str) {
+            if (!str) return '-';
+            try { return new Date(str).toLocaleString('th-TH', { dateStyle: 'short', timeStyle: 'short' }); }
+            catch { return str; }
+        }
+
+        // === เข้าสู่ระบบ ===
+        function login() {
+            const name = document.getElementById('userName').value.trim() || 'ผู้ใช้ทั่วไป';
+            const pass = document.getElementById('userPass').value;
+            currentUser = { role: pass === 'admin123' ? 'admin' : 'user', name };
+            document.getElementById('loginModal').classList.add('hidden');
+            document.getElementById('mainApp').classList.remove('hidden');
+            document.getElementById('currentUser').textContent = `👤 ${escapeHtml(name)} (${currentUser.role === 'admin' ? 'ผู้ดูแลระบบ' : 'ผู้ใช้งาน'})`;
+            const isAdmin = currentUser.role === 'admin';
+            document.getElementById('btnAddTask').classList.toggle('hidden', !isAdmin);
+            document.getElementById('btnDept').classList.toggle('hidden', !isAdmin);
+            startRealtimeSync();
+        }
+        function logout() {
+            if (unsubscribeTasks) unsubscribeTasks();
+            if (unsubscribeDepts) unsubscribeDepts();
+            currentUser = null;
+            document.getElementById('loginModal').classList.remove('hidden');
+            document.getElementById('mainApp').classList.add('hidden');
+        }
+
+        // === ซิงค์ข้อมูลเรียลไทม์ ===
+        function startRealtimeSync() {
+            unsubscribeDepts = db.collection('settings').doc('departments')
+                .onSnapshot(snap => {
+                    if (snap.exists && snap.data().list) departments = snap.data().list;
+                    else {
+                        departments = ['ฝ่ายบริหารงานทั่วไป', 'ฝ่ายการเงินและงบประมาณ', 'ฝ่ายวิชาการ', 'ฝ่ายพัฒนาระบบ'];
+                        saveDeptToFirebase();
+                    }
+                    initFilters(); renderAll();
+                });
+            unsubscribeTasks = db.collection('tasks').orderBy('createdAt', 'desc')
+                .onSnapshot(snap => {
+                    tasks = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                    renderAll();
+                });
+        }
+        function renderAll() {
+            renderTasks(); updateDashboard(); runAnalysis();
+        }
+
+        // === สลับแท็บ ===
+        function switchTab(name) {
+            document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+            event.target.classList.add('active');
+            document.getElementById(name + 'Tab').classList.add('active');
+            if (name === 'dashboard') updateDashboard();
+            if (name === 'analysis') runAnalysis();
+        }
+
+        // === ตัวกรอง ===
+        function initFilters() {
+            const sel = document.getElementById('filterDept');
+            sel.innerHTML = '<option value="">ทุกหน่วยงาน</option>' + departments.map(d => `<option value="${escapeHtml(d)}">${escapeHtml(d)}</option>`).join('');
+        }
+        function applyFilters() { renderTasks(); }
+        function clearFilters() {
+            document.getElementById('searchText').value = '';
+            document.getElementById('filterStatus').value = '';
+            document.getElementById('filterDept').value = '';
+            renderTasks();
+        }
+        function getFilteredTasks() {
+            const q = document.getElementById('searchText').value.toLowerCase();
+            const fStatus = document.getElementById('filterStatus').value;
+            const fDept = document.getElementById('filterDept').value;
+            return tasks.filter(task => {
+                const matchSearch = !q || task.taskName.toLowerCase().includes(q);
+                const matchDept = !fDept || task.deptData.some(d => d.department === fDept);
+                const matchStatus = !fStatus || task.deptData.some(d => d.status === fStatus);
+                return matchSearch && matchDept && matchStatus;
+            });
+        }
+
+        // === แสดงรายการงาน ===
+        function renderTasks() {
+            const container = document.getElementById('tasksContainer');
+            const list = getFilteredTasks();
+            if (!tasks.length) { container.innerHTML = '<div class="empty">ยังไม่มีรายการงานใหม่</div>'; return; }
+            if (!list.length) { container.innerHTML = '<div class="empty">ไม่พบรายการที่ตรงกับเงื่อนไข</div>'; return; }
+            const statusLabel = { pending: 'ยังไม่ส่ง', ontime: 'ส่งตามกำหนด', late: 'ส่งเกินเวลา', nosubmit: 'ไม่ส่งงาน' };
+            container.innerHTML = list.map((task, tIdx) => `
+                <div class="task-card">
+                    <div class="task-header">
+                        <div><div class="task-title">${escapeHtml(task.taskName)}</div><div class="task-duedate">📅 กำหนดส่ง: ${formatDateTime(task.dueDate)}</div></div>
+                        <div class="task-actions no-print">
+                            ${currentUser?.role==='admin'?`
+                            <button class="btn-sm btn-warning" onclick="openTaskForm(${tasks.indexOf(task)})">แก้ไข</button>
+                            <button class="btn-sm btn-danger" onclick="deleteTask(${tasks.indexOf(task)})">ลบ</button>
+                            `:''}
+                        </div>
+                    </div>
+                    <table><thead><tr><th>หน่วยงาน</th><th>สถานะ</th><th>วันที่ส่งจริง</th><th class="no-print">จัดการ</th></tr></thead><tbody>
+                    ${task.deptData.map((d, dIdx) => `
+                        <tr>
+                            <td>${escapeHtml(d.department)}</td>
+                            <td><span class="status status-${d.status}">${statusLabel[d.status]}</span></td>
+                            <td>${d.sentDate?formatDateTime(d.sentDate):'-'}</td>
+                            <td class="no-print"><button class="btn-sm btn-outline" onclick="openStatusModal(${tasks.indexOf(task)},${dIdx})">บันทึกสถานะ</button></td>
+                        </tr>`).join('')}
+                    </tbody></table>
+                </div>`).join('');
+        }
+
+        // === สรุปตัวเลขรวม ===
+        function getCounts() {
+            let total = 0, ontime = 0, late = 0, nosubmit = 0, pending = 0;
+            tasks.forEach(t => t.deptData.forEach(d => {
+                total++;
+                if (d.status === 'ontime') ontime++;
+                else if (d.status === 'late') late++;
+                else if (d.status === 'nosubmit') nosubmit++;
+                else pending++;
+            }));
+            return { total, ontime, late, nosubmit, pending };
+        }
+
+        // === แดชบอร์ดภาพรวม ===
+        function updateDashboard() {
+            const c = getCounts();
+            document.getElementById('dTask').textContent = tasks.length;
+            document.getElementById('dOntime').textContent = c.ontime;
+            document.getElementById('dLate').textContent = c.late;
+            document.getElementById('dNosubmit').textContent = c.nosubmit;
+            document.getElementById('dPending').textContent = c.pending;
+
+            const pCtx = document.getElementById('pieChart').getContext('2d');
+            if (pieChart) pieChart.destroy();
+            pieChart = new Chart(pCtx, {
+                type: 'doughnut',
+                data: { labels: ['ส่งทันเวลา', 'ส่งล่าช้า', 'ไม่ส่งงาน', 'ยังไม่ส่ง'],
+                    datasets: [{ data: [c.ontime, c.late, c.nosubmit, c.pending],
+                        backgroundColor: ['#16a34a', '#dc2626', '#6366f1', '#f59e0b'] }] },
+                options: { responsive: true, maintainAspectRatio: false }
+            });
+
+            const deptStats = departments.map(dept => {
+                const entries = tasks.flatMap(t => t.deptData).filter(d => d.department === dept);
+                return { dept, ontime: entries.filter(d => d.status === 'ontime').length, other: entries.length - entries.filter(d => d.status === 'ontime').length };
+            }).filter(x => x.ontime + x.other > 0);
+
+            const bCtx = document.getElementById('barChart').getContext('2d');
+            if (barChart) barChart.destroy();
+            barChart = new Chart(bCtx, {
+                type: 'bar',
+                data: { labels: deptStats.map(x => x.dept.length > 12 ? x.dept.slice(0,10)+'…' : x.dept),
+                    datasets: [{ label: 'ส่งทันเวลา', data: deptStats.map(x => x.ontime), backgroundColor: '#16a34a' },
+                        { label: 'อื่นๆ', data: deptStats.map(x => x.other), backgroundColor: '#9ca3af' }] },
+                options: { responsive: true, maintainAspectRatio: false,
+                    scales: { x: { stacked: true }, y: { stacked: true, ticks: { precision: 0 } } } }
+            });
+
+            const totalRecords = c.ontime + c.late + c.nosubmit + c.pending;
+            const rate = totalRecords > 0 ? ((c.ontime / totalRecords) * 100).toFixed(1) : 0;
+            document.getElementById('quickSummary').innerHTML = `
+                <div class="analysis-item">📌 <span class="highlight">${tasks.length}</span> รายการงาน รวม <span class="highlight">${totalRecords}</span> ครั้งการส่ง</div>
+                <div class="analysis-item">✅ อัตราการส่งงานทันเวลา: <span class="highlight">${rate}%</span> (${c.ontime}/${totalRecords})</div>
+                <div class="analysis-item">⚠️ มี <span class="highlight">${c.late}</span> รายการส่งล่าช้า และ <span class="highlight">${c.nosubmit}</span> รายการไม่ส่งงาน</div>
+                <div class="analysis-item">⏳ คงเหลือ <span class="highlight">${c.pending}</span> รายการที่ยังไม่ได้รับงาน</div>`;
+        }
+
+        // ✅ === วิเคราะห์แยกตามงาน ===
+        function runAnalysis() {
+            const c = getCounts();
+            const total = c.ontime + c.late + c.nosubmit + c.pending;
+            const rate = total > 0 ? ((c.ontime / total) * 100).toFixed(1) : 0;
+
+            // ส่วนภาพรวม
+            document.getElementById('anOverview').innerHTML = `
+                <div class="analysis-item">📊 <strong>อัตราการส่งงานทันเวลา:</strong> ${rate}% (${c.ontime}/${total})</div>
+                <div class="analysis-item">📤 <strong>งานที่ส่งแล้ว:</strong> ${c.ontime + c.late} รายการ จากทั้งหมด ${total} รายการ</div>
+                <div class="analysis-item">⏳ <strong>งานที่ค้างอยู่:</strong> ${c.pending} รายการ</div>
+                <div class="analysis-item">🚫 <strong>งานที่ไม่ส่ง:</strong> ${c.nosubmit} รายการ</div>`;
+
+            // ✅ ส่วนวิเคราะห์แยกทีละงาน
+            const statusText = { pending: 'ยังไม่ส่ง', ontime: 'ส่งทันเวลา', late: 'ส่งล่าช้า', nosubmit: 'ไม่ส่งงาน' };
+            const statusClass = { pending: 'status-pending', ontime: 'status-ontime', late: 'status-late', nosubmit: 'status-nosubmit' };
+
+            if (!tasks.length) {
+                document.getElementById('taskAnalysisContainer').innerHTML = '<div class="empty">ยังไม่มีข้อมูลงาน</div>';
+                return;
+            }
+
+            document.getElementById('taskAnalysisContainer').innerHTML = tasks.map(task => {
+                const totalDept = task.deptData.length;
+                const ontimeCount = task.deptData.filter(d => d.status === 'ontime').length;
+                const lateCount = task.deptData.filter(d => d.status === 'late').length;
+                const nosubmitCount = task.deptData.filter(d => d.status === 'nosubmit').length;
+                const pendingCount = task.deptData.filter(d => d.status === 'pending').length;
+                const taskRate = totalDept > 0 ? ((ontimeCount / totalDept) * 100).toFixed(1) : 0;
+
+                // รายชื่อหน่วยงานที่มีปัญหา
+                const lateList = task.deptData.filter(d => d.status === 'late').map(d => escapeHtml(d.department)).join(', ') || '-';
+                const pendingList = task.deptData.filter(d => d.status === 'pending').map(d => escapeHtml(d.department)).join(', ') || '-';
+                const nosubmitList = task.deptData.filter(d => d.status === 'nosubmit').map(d => escapeHtml(d.department)).join(', ') || '-';
+
+                // ข้อความแจ้งเตือน
+                let alertMsg = [];
+                if (pendingCount > 0) alertMsg.push(`⏳ ยังรอส่งจาก ${pendingCount} หน่วยงาน`);
+                if (lateCount > 0) alertMsg.push(`⚠️ ส่งล่าช้า: ${lateList}`);
+                if (nosubmitCount > 0) alertMsg.push(`🚫 ไม่ส่งงาน: ${nosubmitList}`);
+                if (alertMsg.length === 0) alertMsg.push('✅ ทุกหน่วยงานส่งทันเวลา ครบถ้วน');
+
+                return `
+                <div class="task-analysis-card">
+                    <h4>📌 ${escapeHtml(task.taskName)}</h4>
+                    <div class="task-meta">
+                        <span>📅 กำหนดส่ง: ${formatDateTime(task.dueDate)}</span>
+                        <span>🏢 ทั้งหมด: ${totalDept} หน่วยงาน</span>
+                        <span class="highlight">✅ ส่งทัน: ${taskRate}%</span>
+                    </div>
+                    <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(120px,1fr)); gap:0.5rem; margin:0.5rem 0;">
+                        <div style="text-align:center; padding:0.5rem; background:#dcfce7; border-radius:8px;">
+                            <div style="font-weight:700; color:#166534; font-size:1.1rem;">${ontimeCount}</div>
+                            <div style="font-size:0.8rem;">ส่งทันเวลา</div>
+                        </div>
+                        <div style="text-align:center; padding:0.5rem; background:#fee2e2; border-radius:8px;">
+                            <div style="font-weight:700; color:#991b1b; font-size:1.1rem;">${lateCount}</div>
+                            <div style="font-size:0.8rem;">ส่งล่าช้า</div>
+                        </div>
+                        <div style="text-align:center; padding:0.5rem; background:#e0e7ff; border-radius:8px;">
+                            <div style="font-weight:700; color:#4338ca; font-size:1.1rem;">${nosubmitCount}</div>
+                            <div style="font-size:0.8rem;">ไม่ส่งงาน</div>
+                        </div>
+                        <div style="text-align:center; padding:0.5rem; background:#fef3c7; border-radius:8px;">
+                            <div style="font-weight:700; color:#92400e; font-size:1.1rem;">${pendingCount}</div>
+                            <div style="font-size:0.8rem;">รอส่ง</div>
+                        </div>
+                    </div>
+                    <div style="margin-top:0.8rem; padding:0.7rem; background:#f9fafb; border-radius:8px; font-size:0.9rem;">
+                        ${alertMsg.map(m => `<div style="margin:0.3rem 0;">${m}</div>`).join('')}
+                    </div>
+                    <details style="margin-top:0.8rem;">
+                        <summary style="cursor:pointer; color:var(--primary); font-weight:500;">📋 แสดงรายละเอียดทุกหน่วยงาน</summary>
+                        <div class="dept-status-list">
+                            ${task.deptData.map(d => `
+                                <div class="dept-status-item">
+                                    <span>${escapeHtml(d.department)}</span>
+                                    <span class="status ${statusClass[d.status]}">${statusText[d.status]}</span>
+                                </div>`).join('')}
+                        </div>
+                    </details>
+                </div>`;
+            }).join('');
+        }
+
+        // === ส่งออกข้อมูล ===
+        function buildExportData() {
+            const statusText = { pending: 'ยังไม่ส่ง', ontime: 'ส่งตามกำหนด', late: 'ส่งเกินเวลา', nosubmit: 'ไม่ส่งงาน' };
+            const rows = [];
+            tasks.forEach(t => t.deptData.forEach(d => {
+                rows.push({
+                    'ชื่องาน': t.taskName,
+                    'กำหนดส่ง': formatDateTime(t.dueDate),
+                    'หน่วยงาน': d.department,
+                    'วันที่ส่งจริง': d.sentDate ? formatDateTime(d.sentDate) : '-',
+                    'สถานะ': statusText[d.status || 'pending']
+                });
+            }));
+            return rows;
+        }
+        function exportExcel() {
+            const data = buildExportData();
+            const ws = XLSX.utils.json_to_sheet(data);
+            const wb = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(wb, ws, 'ติดตามงาน');
+            XLSX.writeFile(wb, `รายงานการส่งงาน_${new Date().toLocaleDateString('th-TH')}.xlsx`);
+        }
+        function exportCSV() {
+            const data = buildExportData();
+            if (!data.length) return alert('ไม่มีข้อมูล');
+            const cols = Object.keys(data[0]);
+            const csv = [cols.join(','), ...data.map(r => cols.map(k => `"${String(r[k]||'').replace(/"/g,'""')}"`).join(','))].join('\n');
+            const blob = new Blob(['\uFEFF'+csv], {type:'text/csv;charset=utf-8'});
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url; a.download = `รายงานการส่งงาน_${new Date().toLocaleDateString('th-TH')}.csv`;
+            a.click(); URL.revokeObjectURL(url);
+        }
+
+        // === จัดการหน่วยงาน ===
+        function openDeptModal() { document.getElementById('deptModal').classList.remove('hidden'); renderDeptList(); }
+        function closeDeptModal() { document.getElementById('deptModal').classList.add('hidden'); }
+        function renderDeptList() {
+            document.getElementById('deptList').innerHTML = departments.map((d,i) => `
+                <div style="display:flex; justify-content:space-between; padding:0.5rem 0; border-bottom:1px solid #eee;">
+                    <span>🏢 ${escapeHtml(d)}</span>
+                    <div>
+                        <button class="btn-sm btn-warning" onclick="editDept(${i})">แก้ไข</button>
+                        <button class="btn-sm btn-danger" onclick="delDept(${i})">ลบ</button>
+                    </div>
+                </div>`).join('');
+        }
+        async function saveDeptToFirebase() {
+            await db.collection('settings').doc('departments').set({ list: departments });
+        }
+        async function addDept() {
+            const v = document.getElementById('newDept').value.trim();
+            if (!v || departments.includes(v)) { alert('ชื่อซ้ำหรือว่างเปล่า'); return; }
+            departments.push(v); await saveDeptToFirebase();
+            renderDeptList(); document.getElementById('newDept').value=''; initFilters();
+        }
+        async function editDept(i) {
+            const n = prompt('แก้ไขชื่อ:', departments[i]);
+            if (n && n.trim() && !departments.includes(n.trim())) {
+                departments[i] = n.trim(); await saveDeptToFirebase();
+                renderDeptList(); initFilters();
+            }
+        }
+        async function delDept(i) {
+            if (confirm(`ลบหน่วยงาน "${departments[i]}"?`)) {
+                departments.splice(i,1); await saveDeptToFirebase();
+                renderDeptList(); initFilters();
+            }
+        }
+
+        // === จัดการงาน ===
+        function openTaskForm(i=-1) {
+            editTaskIdx = i;
+            document.getElementById('taskModal').classList.remove('hidden');
+            document.getElementById('taskModalTitle').textContent = i>=0 ? '✏️ แก้ไขงาน' : '➕ เพิ่มงานใหม่';
+            document.getElementById('tName').value = i>=0 ? tasks
